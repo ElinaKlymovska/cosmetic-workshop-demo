@@ -38,11 +38,14 @@
       return null;
     }
     let tourDone=false;
+    // Візуальне навчання рівнів 1–5 (tutorial.js): маршрут ресурсу, рецепт, варіння, вітрина, повне кільце, новий ланцюжок.
+    const tutor=new ShopTutorial.Director(levels,CHAIN_LEVEL);
     function command(action,index){
       if(game.phase==="playing"&&!demoMode){
         coach.act(action);
         const ball=game.session.bench[index],chain=chainOf(game.session);
         if((action==="return"||action==="pour")&&chain&&ball?.kind===chain.kind)tourDone=true;
+        if(action==="return"||action==="pour")tutor.act(action,ball);
       }
       game.command(action,index);
     }
@@ -94,21 +97,109 @@
       drawCaption(`${LABEL[chain.kind][0].toUpperCase()+LABEL[chain.kind].slice(1)} іде в рецепт «${LABEL[chain.consumer.product]}». Лійка — розлити на вітрину. Колба — назад на кільце, до машини «${LABEL[chain.consumer.id]}».`,{x:0,y:0,w:ShopScene.width,h:0},1410);
       return true;
     }
-    function drawHand(){
-      if(demoMode||game.phase!=="playing"||!ShopOnboarding.eligible(game.index,game.completed))return;
-      if(drawChainTour())return;
-      const h=ShopOnboarding.hint(game.session,game.index);if(!h||!coach.visibleFor(h.type))return;
-      if(h.type==="note"){drawCaption(h.text,null);return;}
-      const r=rects.get(({launch:"queue",return:"return",pour:"pour"})[h.type]+"-"+h.index);if(!r)return;
-      const t=performance.now()/1000,tap=Math.abs(Math.sin(t*3.2)),cx=r.x+r.w/2,cy=r.y+r.h*.55+tap*18;
-      ctx.save();ctx.translate(cx,cy);ctx.lineJoin="round";
+    // Підписи навчання лежать на хвостах черг: там нічого не натискається, лавка й лійка лишаються відкритими.
+    const CAPTION_Y=1488,still=matchMedia("(prefers-reduced-motion: reduce)");
+    const center=b=>({x:b.x+b.w/2,y:b.y+b.h/2});
+    // Пунктир із «бігом» і стрілкою на кінці; темна підкладка, щоб жовтий читався на будь-якому тлі.
+    function dashed(points,color="#f2c318"){
+      if(points.length<2)return;
+      ctx.save();ctx.lineCap="round";ctx.lineJoin="round";
+      const line=()=>{ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke();};
+      ctx.strokeStyle="#1d2838";ctx.lineWidth=11;ctx.globalAlpha=.55;line();
+      ctx.globalAlpha=1;ctx.strokeStyle=color;ctx.lineWidth=6;ctx.setLineDash([16,12]);
+      ctx.lineDashOffset=still.matches?0:-performance.now()/40;line();ctx.setLineDash([]);
+      const a=points[points.length-2],b=points[points.length-1],ang=Math.atan2(b.y-a.y,b.x-a.x);
+      ctx.translate(b.x,b.y);ctx.rotate(ang);ctx.fillStyle=color;ctx.strokeStyle="#1d2838";ctx.lineWidth=3;
+      ctx.beginPath();ctx.moveTo(4,0);ctx.lineTo(-16,-12);ctx.lineTo(-16,12);ctx.closePath();ctx.fill();ctx.stroke();
+      ctx.restore();
+    }
+    // Шлях кільцем від точки входу до порту машини (за напрямком руху) і далі до силуету.
+    function ringPoints(from,to){
+      const d=((to-from)%1+1)%1||1,n=Math.max(2,Math.ceil(d*80)),pts=[];
+      for(let k=0;k<=n;k++)pts.push(ShopScene.ring(from+d*k/n));
+      return pts;
+    }
+    function drawRoute(s,rt,withGhost=true){
+      const slot=ShopScene.slotBox(s,rt.machine,rt.slot),pts=ringPoints(rt.from,rt.to);
+      const end=center(slot),last=pts[pts.length-1];
+      // До силуету — коротка ланка, що зупиняється на його краю.
+      const len=Math.hypot(end.x-last.x,end.y-last.y),stop=Math.max(0,len-slot.w*.55);
+      pts.push({x:last.x+(end.x-last.x)*stop/len,y:last.y+(end.y-last.y)*stop/len});
+      dashed(pts);mark(slot,null,6);
+      if(!withGhost)return;
+      // Напівпрозорий «привид» ресурсу проходить шлях; при зменшеному русі стоїть біля силуету.
+      const u=still.matches?1:(performance.now()/1000/2.2)%1,i=Math.min(pts.length-1,Math.floor(u*(pts.length-1))),p=pts[i];
+      const sprite=ShopScene.sprite(rt.kind),b=ShopScene.fit({x:p.x-26,y:p.y-26,w:52,h:52},sprite);
+      ctx.save();ctx.globalAlpha=.6*(1-Math.max(0,u-.85)/.15);ctx.drawImage(sprite,b.x,b.y,b.w,b.h);ctx.restore();
+    }
+    // Від значка лійки до станції розливу й до лічильника вітрини: куди дівається баночка.
+    function drawShelfPath(s,kind,from){
+      const st=ShopScene.station,v=ShopScene.vitrineBox(s,kind);if(!v)return;
+      // Від лійки — правим краєм поля поза кільцем, щоб лінія не перетинала цехи.
+      const cx=st.x+st.w/2,edge=ShopScene.width-24,top=v.y+v.h+36;
+      dashed([from,{x:cx,y:st.y+16},{x:edge,y:st.y+16},{x:edge,y:top},{x:v.x+v.w/2,y:top},{x:v.x+v.w/2,y:v.y+v.h+8}]);
+      mark(v,null,4);
+    }
+    function pointer(r){
+      const t=performance.now()/1000,tap=still.matches?0:Math.abs(Math.sin(t*3.2)),cx=r.x+r.w/2;
+      ctx.save();ctx.translate(cx,r.y+r.h/2);
       ctx.beginPath();ctx.arc(0,0,r.w*.5+10+tap*8,0,Math.PI*2);ctx.strokeStyle="#ffffffcc";ctx.lineWidth=6;ctx.stroke();
+      // Кінчик пальця торкається нижнього краю цілі: сама ціль (значок, ресурс) лишається видимою.
+      ctx.translate(0,r.h/2-6+tap*14);ctx.lineJoin="round";
       ctx.strokeStyle="#593821";ctx.lineWidth=5;ctx.fillStyle="#fff6e4";
       ctx.beginPath();ctx.roundRect(-38,44,76,72,26);ctx.fill();ctx.stroke();   // palm
       ctx.beginPath();ctx.roundRect(-14,0,28,86,14);ctx.fill();ctx.stroke();    // index finger
       ctx.beginPath();ctx.roundRect(-33,48,66,64,22);ctx.fill();                 // hide the seam
       ctx.restore();
-      drawCaption(h.text,r);
+    }
+    // Один удар навчання з tutorial.js: рамка й лінія показують причину й наслідок, підпис — коротко.
+    function drawBeat(s,b){
+      if(b.id==="ring-full"){
+        const t=performance.now()/1000,pulse=still.matches?1:.5+.5*Math.sin(t*4);
+        ctx.save();ctx.strokeStyle="#f5a410";ctx.lineWidth=8;ctx.globalAlpha=.55+.45*pulse;
+        ctx.beginPath();ctx.roundRect(64-30,239-30,772+60,760+60,104);ctx.stroke();ctx.restore();
+        // Погоджена шкала заповнення кільця (view.js, нижня рама) — підказка обводить саме її.
+        mark({x:126,y:952,w:648,h:20},`${s.belt.length}/${CAP}`,6,false);
+        for(let i=0;i<4;i++){const r=rects.get("queue-"+i);if(r&&active.has("queue-"+i))mark(r,null,6);}
+      }else if(b.id==="recipe"){
+        const m=s.machines.find(x=>x.room===b.room);if(m)mark(ShopScene.recipeBox(s,m),"рецепт",10);
+      }else if(b.id==="cook"){
+        const m=s.machines.find(x=>x.room===b.room);if(m){mark(ShopScene.recipeBox(s,m),null,10);mark(ShopScene.barBox(m),`${m.remaining.toFixed(1)} с`,6);}
+      }else if(b.id==="vitrine"){
+        const v=ShopScene.vitrineBox(s,b.kind);if(v)mark(v,"+1",6);
+      }else if(b.id==="chain-consumer"){
+        const r=rects.get("return-"+b.seat);if(r)mark(r,"на кільце",8,false);
+        drawRoute(s,b.route);
+      }else if(b.id==="chain-quota"){
+        const r=rects.get("pour-"+b.seat);if(r){pointer(r);drawShelfPath(s,b.kind,center(r));}
+      }
+      drawCaption(b.text,null,CAPTION_Y);
+    }
+    function drawHand(){
+      if(demoMode||game.phase!=="playing"||game.completed>game.index)return;
+      const s=game.session,onboarding=ShopOnboarding.eligible(game.index,game.completed);
+      if(onboarding&&drawChainTour())return;
+      const beat=tutor.update(s,game.index);
+      if(beat){drawBeat(s,beat);return;}
+      if(!onboarding)return;
+      const h=ShopOnboarding.hint(s,game.index);if(!h||!coach.visibleFor(h.type))return;
+      if(h.type==="note"){
+        // Перша баночка рівня 1: шлях від лавки через лійку на вітрину.
+        const seat=s.bench.findIndex(Boolean);
+        if(seat>=0)drawShelfPath(s,s.bench[seat].kind,{x:84+592*[.15,.38,.61,.84][seat],y:1090});
+        drawCaption(h.text,null,CAPTION_Y);return;
+      }
+      const r=rects.get(({launch:"queue",return:"return",pour:"pour"})[h.type]+"-"+h.index);if(!r)return;
+      let text=h.text;
+      // Подача на рівнях 1–2: маршрут кільцем до силуету, який забере саме цей ресурс.
+      if(h.type==="launch"&&game.index<=1){
+        const kind=s.queues[h.index][0]?.kind,rt=kind&&ShopTutorial.route(s,kind,HATCH);
+        if(rt)drawRoute(s,rt);
+        text=ShopTutorial.launchText(s,rt,game.index);
+      }
+      if(h.type==="pour"&&s.bench[h.index])drawShelfPath(s,s.bench[h.index].kind,center(r));
+      pointer(r);
+      drawCaption(text,null,CAPTION_Y);
     }
     function hit(id,label,r,act,disabled){
       active.add(id);rects.set(id,r);let b=buttons.get(id);
@@ -224,7 +315,7 @@
         $("demo-status").textContent=autoplay?"Автопоказ · чотири цехи працюють разом":"Ви керуєте · чотири цехи";
         $("demo-control").textContent=autoplay?"Грати самостійно":"Увімкнути автопоказ";
       }
-      if(coachSession!==s){coachSession=s;coach.reset();tourDone=false;}
+      if(coachSession!==s){coachSession=s;coach.reset();tutor.reset();tourDone=false;}
       // Guide: level 1 starts straight into action, no intro screen.
       ShopScene.drawBackground(ctx,sceneryFor(s));active=new Set();ShopScene.render(ctx,s,hit,command);drawHand();
       for(const [id,b]of buttons)if(!active.has(id))b.hidden=true;

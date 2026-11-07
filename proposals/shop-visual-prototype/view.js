@@ -265,6 +265,23 @@ const ShopScene = (() => {
     }
     ctx.restore();
   }
+
+  // Шкала заповнення кільця: шість сегментів на нижній рамі, між кімнатами й стрічкою — по одному на місце (CAP).
+  // Жовті — зайняті ресурсами й повернутими посудинами; коли кільце повне, усі червоні й пульсують.
+  function beltGauge(ctx,s){
+    const n=Math.min(CAP,s.belt.length),full=n>=CAP;
+    const pulse=full&&!reducedMotion.matches?.8+.2*Math.sin(performance.now()/160):1;
+    const x0=126,x1=774,y=952,h=20,gap=8,w=(x1-x0-gap*(CAP-1))/CAP;
+    ctx.save();
+    for(let i=0;i<CAP;i++){
+      const b=box(x0+i*(w+gap),y,w,h);
+      ctx.fillStyle="#3d4c68";rr(ctx,b,8);ctx.fill();
+      if(i>=n)continue;
+      ctx.globalAlpha=pulse;ctx.fillStyle=full?"#ff4b2e":"#f2c318";rr(ctx,b,8);ctx.fill();ctx.globalAlpha=1;
+      ctx.fillStyle="rgba(255,255,255,.4)";rr(ctx,box(b.x+6,b.y+3,b.w-12,5),3);ctx.fill();
+    }
+    ctx.restore();
+  }
   function render(ctx,s,hit,command){
     const chambers=new Map(),arrivals=[];
     const heldKind=!s.filler.item&&s.lastFilled&&s.time-s.lastFilled.time<1.2?s.lastFilled.kind:null;
@@ -311,6 +328,7 @@ const ShopScene = (() => {
       }
       image(ctx,name,at);
     }
+    beltGauge(ctx,s);
     for(const flight of arrivals){
       const at=flight.at;
       ctx.save();ctx.translate(at.x+at.w/2,at.y+at.h);ctx.rotate(flight.angle*Math.PI/180);
@@ -420,5 +438,22 @@ const ShopScene = (() => {
     ctx.fillStyle="#fff7e0";ctx.font="700 20px system-ui,sans-serif";ctx.textAlign="left";
     ctx.restore();
   }
-  return {width,height,load,scenery,drawBackground,render,levelProducts,project,ring,recipeHints};
+  // Геометрія для навчання (tutorial у controller.js): ті самі прямокутники, що й у рендері.
+  function slotBox(s,m,i){
+    const r=room(m.room),at=recipeSlots(m.slots.map(x=>x.kind),m.room,hintPad(s,m))[i];
+    return box(r.x+at.x,r.y+at.y,at.size,at.size);
+  }
+  function recipeBox(s,m){
+    const all=m.slots.map((_,i)=>slotBox(s,m,i)),x=Math.min(...all.map(b=>b.x)),y=Math.min(...all.map(b=>b.y));
+    return box(x,y,Math.max(...all.map(b=>b.x+b.w))-x,Math.max(...all.map(b=>b.y+b.h))-y);
+  }
+  function barBox(m){const r=machineRect(m);return box(r.x+r.w*.1,r.y+r.h+4,r.w*.8,16);}
+  // Лічильник продукту на вітрині HUD (іконка й «n/мінімум»).
+  function vitrineBox(s,kind){
+    const kinds=levelProducts(s),k=kinds.indexOf(kind);if(k<0)return null;
+    const slot=Math.min(70,200/kinds.length),x=649+k*slot+(200-slot*kinds.length)/2;
+    return box(x,88,slot,64);
+  }
+  const sprite=kind=>sprites[materials[kind]];
+  return {width,height,load,scenery,drawBackground,render,levelProducts,project,ring,recipeHints,slotBox,recipeBox,barBox,vitrineBox,sprite,station:FUNNEL,fit};
 })();
