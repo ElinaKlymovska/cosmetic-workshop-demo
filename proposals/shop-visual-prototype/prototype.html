@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="uk">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cosmetic Workshop — новий вигляд (прототип)</title>
+<link rel="stylesheet" href="style.css">
+<main>
+  <div id="demo-tools" class="demo-tools" hidden>
+    <p id="demo-status" role="status">Показ роботи · чотири цехи</p>
+    <button id="demo-control">Грати самостійно</button>
+    <a href="prototype.html">Повернутися до кампанії</a>
+  </div>
+  <div class="board" id="board" aria-label="Лавка готового продукту">
+    <canvas id="cv" width="900" height="1680" aria-label="Ігрове поле лавки"></canvas>
+    <div id="controls"></div>
+    <nav class="header" aria-label="Керування рівнем">
+      <button id="previous" aria-label="Попередній рівень">‹</button>
+      <h1 id="title">Завантаження…</h1>
+      <button id="pause" disabled>Пауза</button>
+      <button id="next" aria-label="Наступний рівень">›</button>
+    </nav>
+    <p id="hint" class="hint"></p>
+    <p id="progress" class="progress" aria-live="polite"></p>
+    <section id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="dialog-title" hidden>
+      <div class="panel">
+        <p id="dialog-kicker" class="kicker"></p>
+        <h2 id="dialog-title"></h2>
+        <p id="dialog-copy"></p>
+        <div id="dialog-goals" class="goals" hidden></div>
+        <p id="dialog-goal" class="goal"></p>
+        <p id="dialog-guide" class="guide"></p>
+        <div id="dialog-levels" class="level-map" hidden></div>
+        <button id="dialog-primary" class="primary"></button>
+        <button id="dialog-secondary" class="secondary"></button>
+        <button id="dialog-map" class="text-button">Вибрати рівень</button>
+        <p id="save-note" class="save-note"></p>
+      </div>
+    </section>
+    <p id="error" role="alert" hidden></p>
+  </div>
+  <details class="help">
+    <summary>Рівні та керування</summary>
+    <div id="levels" class="levels" role="group" aria-label="Вибір рівня"></div>
+    <p id="status" role="status"></p>
+    <button id="restart">Почати рівень заново</button>
+    <p>Натисніть передній ресурс у черзі або клавішу 1–4, щоб запустити його на кільце. Натисніть посудину на лавці, щоб повернути її на кільце; значок лійки поруч — щоб розлити. R — почати рівень заново, пробіл або Escape — пауза. Повернення у вкладку чекає вашого продовження.</p>
+    <p>Наступний рівень відкривається після перемоги. Прогрес зберігається в цьому браузері; новий запуск починає чисту партію на найдальшому відкритому рівні.</p>
+    <p>Коло 6 с, варіння 3 с, каретка 3 с, розлив 1,5 с. Зміна за рівнями: 75 / 90 / 105 / 110 / 120 / 120 / 130 / 130 / 140 / 150 с.</p>
+  </details>
+</main>
+<script src="../shop-bench-v1/engine.js"></script>
+<script src="../shop-bench-v1/campaign.js"></script>
+<script src="../shop-bench-v1/strategy.js"></script>
+<script src="../shop-bench-v1/onboarding.js"></script>
+<script src="../shop-bench-v1/demo.js"></script>
+<script src="../shop-bench-v1/recipe-layout.js"></script>
+<script src="../shop-bench-v1/machine-motion.js"></script>
+<script src="../shop-bench-v1/recipe-hints.js"></script>
+<script src="view.js"></script>
+<script src="controller.js"></script>
+</html>
