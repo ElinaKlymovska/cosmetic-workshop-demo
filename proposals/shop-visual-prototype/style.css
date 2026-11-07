@@ -55,3 +55,7 @@ h1.won{color:#1f5a1a}h1.left{color:#8a2a14}
 .panel:has(.goals:not([hidden])) p{margin-bottom:2cqw}
 .panel:has(.goals:not([hidden])) .kicker{margin-bottom:1.5cqw}
 .panel:has(.goals:not([hidden])) button{min-height:8cqw;margin:1.2cqw 0}
+.goal-steps{list-style:none;padding:0}
+.goal-steps li{display:flex;align-items:center;gap:2.5cqw;margin-bottom:1.6cqw}
+.goal-steps img,.goal-steps .goal-icon{flex:none;width:9cqw;height:9cqw;object-fit:contain}
+.goal-steps .goal-icon{display:grid;place-items:center;font-size:6cqw;font-weight:800;background:#f2c318;border:3px solid #1d2838;border-radius:50%;width:8cqw;height:8cqw}

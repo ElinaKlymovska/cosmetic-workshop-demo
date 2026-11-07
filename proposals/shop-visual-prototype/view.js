@@ -23,28 +23,40 @@ const ShopScene = (() => {
   const room = id => { const i=rooms.indexOf(id); return box(109+i%2*346,284+Math.floor(i/2)*338,336,328); };
   const onLeft = id => id==="UL"||id==="LL";
   const machine = id => { const r=room(id); return onLeft(id)?box(r.x+12,r.y+26,190,262):box(r.x+134,r.y+26,190,262); };
-  // Сировина — колонка (до 3) або дві колонки навпроти машини; невеликий розкид кутів зберігає «розкидані» місця.
-  function recipeSlots(count,id){
-    // Вільна зона навпроти машини: ряди рівномірно розкладені на всю висоту кімнати (від верху до низу),
-    // а в самій зоні розташування «розсипане»: зигзаг ліво/право, невеликий зсув і нахил кожного силуету.
-    const size=count<=3?72:count<=5?64:count<=6?60:54;
-    const zone=box(onLeft(id)?212:8,28,116,276),cx0=zone.x+zone.w/2;
-    const step=count>1?Math.min((zone.h-size)/(count-1),104):0,span=step*(count-1),first=zone.y+zone.h/2-span/2;
-    const off=Math.min(30,(zone.w-size)/2-3);
+  // Сировина — у вільній зоні навпроти машини. Однакові ресурси підряд (дві лаванди, дві олійки) стоять поруч
+  // в одному ряду, щоб не зливалися; поодинокі — зигзагом ліво/право. Ряди рівномірно розкладені на висоту кімнати.
+  // Запас у зоні для стрілки-підказки: продукт іншої кімнати в рецепті отримує місце з боку джерела.
+  const rowOf=id=>Math.floor(rooms.indexOf(id)/2);
+  function hintPad(s,m){
+    const pad={top:0,bottom:0};
+    for(const k of m.need){const src=s.machines.find(o=>o!==m&&o.product===k);if(!src)continue;
+      const d=rowOf(src.room)-rowOf(m.room);if(d<0)pad.top=36;else if(d>0)pad.bottom=36;}
+    return pad;
+  }
+  function recipeSlots(kinds,id,pad={top:0,bottom:0}){
+    const count=kinds.length;
+    const rows=[];for(let i=0;i<count;i++){if(kinds[i]===kinds[i+1]){rows.push([i,i+1]);i++;}else rows.push([i]);}
+    const zone=box(onLeft(id)?212:8,24+pad.top,116,290-pad.top-pad.bottom),cx0=zone.x+zone.w/2;
+    // Ряди не налазять один на одного: розмір силуету не більший за висоту ряду.
+    const size=Math.min(count<=3?72:count<=5?64:count<=6?60:54,Math.floor(zone.h/rows.length));
+    const step=rows.length>1?Math.min((zone.h-size)/(rows.length-1),112):0,span=step*(rows.length-1),first=zone.y+zone.h/2-span/2;
+    const off=Math.min(30,(zone.w-size)/2-3),pair=size*.56;
     const dx=[-5,6,-3,5,-6,4,-4,6],dy=[4,-5,6,-4,5,-6,3,-5],ang=[-6,5,4,-5,6,-4,5,-6];
-    const flip=onLeft(id)?-1:1;
-    return Array.from({length:count},(_,i)=>{
-      const side=(i%2?1:-1)*(count===1?0:1)*flip;
-      let cx=Math.max(zone.x+size/2,Math.min(zone.x+zone.w-size/2,cx0+side*off+dx[i%8]*flip));
-      let top=first+i*step+dy[i%8]-size/2;
+    const flip=onLeft(id)?-1:1,out=[];
+    rows.forEach((row,r)=>row.forEach((i,j)=>{
+      // Пара — ліворуч і праворуч від центру зони з протилежним нахилом; поодинокий — зигзаг за номером ряду.
+      const side=row.length===2?(j?1:-1):(r%2?1:-1)*(rows.length===1?0:1)*flip;
+      let cx=row.length===2?cx0+side*pair:Math.max(zone.x+size/2,Math.min(zone.x+zone.w-size/2,cx0+side*off+dx[r%8]*flip));
+      let top=first+r*step+(row.length===2?(j?-3:3):dy[r%8])-size/2;
+      const hw=size*.42+4,hh=size/2+4,tilt=row.length===2?(j?5:-5):ang[r%8]*flip;
       // Силует (з обідком і нахилом) не заходить на контур кімнати: у заокруглених кутах зсуваємо всередину.
-      const hw=size*.42+4,hh=size/2+4,tilt=ang[i%8]*flip;void tilt;
       for(let n=0;n<90&&!insideRoom(cx,top+size/2,hw,hh);n++){
         cx+=cx<ROOM_W/2?1:-1;
         if(n%3===2)top+=top+size/2<ROOM_H/2?1:-1;
       }
-      return {x:cx-size/2,y:top,size,angle:tilt};
-    });
+      out[i]={x:cx-size/2,y:top,size,angle:tilt};
+    }));
+    return out;
   }
   // Внутрішня межа кімнати: контур підкладки ≈ 6 px, кути заокруглені (радіус ≈ 70), плюс запас у 6 px.
   const ROOM_W=336,ROOM_H=328,ROOM_PAD=12,ROOM_R=58;
@@ -150,24 +162,43 @@ const ShopScene = (() => {
     return canvas;
   }
   const hintCache=new Map();
+  // Стрілка стоїть з того боку силуету, що дивиться на кімнату-джерело. Спільний recipe-hints.js (перенесений
+  // у Unity) знає лише сторони right/left/bottom, тож бажану точку задаємо через side і gap:
+  // вертикальний напрямок — side 'bottom' з gap, що виносить точку над/під силует; горизонтальний — right/left.
+  function towardSource(s,m,kind,b){
+    const src=s.machines.find(o=>o!==m&&o.product===kind);if(!src)return undefined;
+    const from=rooms.indexOf(m.room),to=rooms.indexOf(src.room),dx=to%2-from%2,dy=rowOf(src.room)-rowOf(m.room);
+    const reach=Math.max(b.w,b.h)/2+22;
+    if(Math.abs(dy)>=Math.abs(dx))return {side:'bottom',gap:-b.h/2+(dy<0?-reach:reach)-10};   // y = b.y+b.h+gap+10 = центр ∓ reach
+    return {side:dx<0?'left':undefined,gap:reach-b.w/2};
+  }
   function recipeHintPlan(s){
     const frames=s.machines.map(m=>({room:m.room,product:m.product,box:machineRect(m)}));
     const items=[],bounds={};
     for(const m of s.machines){
       const r=room(m.room);
       bounds[m.room]=box(r.x+14,r.y+16,r.w-28,r.h-28);
-      const layout=recipeSlots(m.slots.length,m.room);
+      const layout=recipeSlots(m.slots.map(x=>x.kind),m.room,hintPad(s,m));
       m.slots.forEach((slot,i)=>{
         const at=layout[i],sprite=sprites[materials[slot.kind]];
-        items.push({room:m.room,index:i,kind:slot.kind,hintStyle:s.level.recipeHints?.[slot.kind],sprite,angle:at.angle,box:uprightBox(box(r.x+at.x,r.y+at.y,at.size,at.size),sprite)});
+        const b=uprightBox(box(r.x+at.x,r.y+at.y,at.size,at.size),sprite);
+        items.push({room:m.room,index:i,kind:slot.kind,hintStyle:s.level.recipeHints?.[slot.kind]??towardSource(s,m,slot.kind,b),sprite,angle:at.angle,box:b});
       });
     }
     return ShopRecipeHints.plan(items,frames,bounds,(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c;});
   }
+  // План підказок (контур силуету й стрілка) кешується окремо: його читає і навчання рівня з ланцюжком.
+  const planCache=new Map();
+  const hintKey=s=>JSON.stringify([s.level.recipeHints,s.machines.map(m=>[m.id,m.room,m.product,m.need])]);
+  function recipeHints(s){
+    const key=hintKey(s);
+    if(!planCache.has(key))planCache.set(key,recipeHintPlan(s));
+    return planCache.get(key);
+  }
   function recipeHintOverlay(s){
-    const key=JSON.stringify([s.level.recipeHints,s.machines.map(m=>[m.id,m.room,m.product,m.need])]);
+    const key=hintKey(s);
     if(!hintCache.has(key)){
-      const hints=recipeHintPlan(s);
+      const hints=recipeHints(s);
       if(!hints.length){hintCache.set(key,null);return null;}
       const all=hints.flatMap(h=>[h.box,h.arrow]);
       const x=Math.floor(Math.min(...all.map(b=>b.x))-20),y=Math.floor(Math.min(...all.map(b=>b.y))-20);
@@ -243,7 +274,7 @@ const ShopScene = (() => {
     }
     for(const m of s.machines){
       const r=room(m.room);
-      const layout=recipeSlots(m.slots.length,m.room);
+      const layout=recipeSlots(m.slots.map(x=>x.kind),m.room,hintPad(s,m));
       m.slots.forEach((slot,i)=>{
         const at=layout[i],target=box(r.x+at.x,r.y+at.y,at.size,at.size);
         const progress=typeof ShopMachineMotion!=="undefined"&&!reducedMotion.matches?ShopMachineMotion.arrivalProgress(slot,s.time):1;
@@ -389,5 +420,5 @@ const ShopScene = (() => {
     ctx.fillStyle="#fff7e0";ctx.font="700 20px system-ui,sans-serif";ctx.textAlign="left";
     ctx.restore();
   }
-  return {width,height,load,scenery,drawBackground,render,levelProducts,project,ring};
+  return {width,height,load,scenery,drawBackground,render,levelProducts,project,ring,recipeHints};
 })();

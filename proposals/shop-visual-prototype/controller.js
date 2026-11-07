@@ -29,10 +29,26 @@
     function showMap(){game.pause();screen="map";draw();}
     // Tutorial hand and caption: first pass of levels 1–3 only.
     const coach=new ShopOnboarding.Coach(),rects=new Map();let coachSession=null;
-    function command(action,index){if(game.phase==="playing"&&!demoMode)coach.act(action);game.command(action,index);}
+    // Навчання процесу — на першому рівні, де рецепт однієї машини містить продукт іншої (рівень 3: настій у крем).
+    const CHAIN_LEVEL=levels.findIndex(lv=>lv.machines.some(([,,need])=>need.some(k=>lv.machines.some(o=>o[3]===k))));
+    const CORNER={UL:"лівий верхній",UR:"правий верхній",LL:"лівий нижній",LR:"правий нижній"};
+    // Ланцюжок у сесії: машина-споживач, машина-виробник і продукт між ними.
+    function chainOf(s){
+      for(const c of s.machines)for(const k of c.need){const p=s.machines.find(o=>o!==c&&o.product===k);if(p)return {consumer:c,producer:p,kind:k};}
+      return null;
+    }
+    let tourDone=false;
+    function command(action,index){
+      if(game.phase==="playing"&&!demoMode){
+        coach.act(action);
+        const ball=game.session.bench[index],chain=chainOf(game.session);
+        if((action==="return"||action==="pour")&&chain&&ball?.kind===chain.kind)tourDone=true;
+      }
+      game.command(action,index);
+    }
     function revive(){if(game.revive()){screen="";last=performance.now();draw();}}
     // Caption on a rounded plate, wrapped to the plate width; placed above or below the target.
-    function drawCaption(text,r){
+    function drawCaption(text,r,fixedY){
       ctx.save();ctx.font="700 34px system-ui,sans-serif";ctx.textBaseline="middle";
       const maxW=640,words=text.split(" "),lines=[];let line="";
       for(const w of words){const t=line?line+" "+w:w;if(ctx.measureText(t).width>maxW&&line){lines.push(line);line=w;}else line=t;}
@@ -40,7 +56,7 @@
       const w=Math.min(maxW,Math.max(...lines.map(l=>ctx.measureText(l).width)))+56,h=lines.length*44+32;
       const x=Math.max(20,Math.min(ShopScene.width-w-20,r?r.x+r.w/2-w/2:(ShopScene.width-w)/2));
       // Queue and note captions sit on the rail above the bench; bench targets get theirs just above them.
-      const y=!r||r.y>1300?905:r.y-h-70;
+      const y=fixedY??(!r||r.y>1300?905:r.y-h-70);
       ctx.fillStyle="#fff6e4f2";ctx.strokeStyle="#593821";ctx.lineWidth=4;
       ctx.beginPath();ctx.roundRect(x,Math.max(20,Math.min(ShopScene.height-h-20,y)),w,h,26);ctx.fill();ctx.stroke();
       ctx.fillStyle="#593821";ctx.textAlign="center";
@@ -48,8 +64,39 @@
       lines.forEach((l,j)=>ctx.fillText(l,x+w/2,top+16+22+j*44));
       ctx.restore();
     }
+    // Пульсуюча рамка навколо цілі навчання з підписом-ярличком.
+    function mark(r,label,pad=10,below=true){
+      const t=performance.now()/1000,pulse=.5+.5*Math.sin(t*4);
+      ctx.save();ctx.strokeStyle="#f2c318";ctx.lineWidth=6;ctx.globalAlpha=.65+.35*pulse;
+      ctx.beginPath();ctx.roundRect(r.x-pad-pulse*4,r.y-pad-pulse*4,r.w+2*(pad+pulse*4),r.h+2*(pad+pulse*4),18);ctx.stroke();
+      ctx.globalAlpha=1;
+      if(label){
+        ctx.font="800 24px system-ui,sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+        const w=ctx.measureText(label).width+28,cx=Math.max(20+w/2,Math.min(ShopScene.width-20-w/2,r.x+r.w/2));
+        const y=below?r.y+r.h+pad+14:r.y-pad-14-38;
+        ctx.fillStyle="#1d2838";ctx.beginPath();ctx.roundRect(cx-w/2,y,w,38,14);ctx.fill();
+        ctx.fillStyle="#fff7e0";ctx.fillText(label,cx,y+20);
+      }
+      ctx.restore();
+    }
+    // Рівень з ланцюжком: коли проміжний продукт уперше стоїть на лавці, показуємо обидва шляхи,
+    // його силует у рецепті споживача й стрілку до кута виробника. Зникає після першого рішення гравця.
+    function drawChainTour(){
+      if(tourDone||game.index!==CHAIN_LEVEL)return false;
+      const s=game.session,chain=chainOf(s);if(!chain)return false;
+      const seat=s.bench.findIndex((b,i)=>b&&b.kind===chain.kind&&!s.waiting[i]&&s.filler.item!==b&&rects.has("pour-"+i)&&active.has("pour-"+i));
+      if(seat<0)return false;
+      const hint=ShopScene.recipeHints(s).find(h=>h.room===chain.consumer.room&&h.kind===chain.kind);
+      if(hint){mark(hint.box,null,8);mark(hint.arrow,`з кута: ${LABEL[chain.producer.id]}`,4,false);}
+      mark(rects.get("return-"+seat),"на кільце",8,false);
+      mark(rects.get("pour-"+seat),"на вітрину",6,true);
+      // Плашка лягає на хвости черг: там нічого не натискається, а машини й лавка лишаються видимими.
+      drawCaption(`${LABEL[chain.kind][0].toUpperCase()+LABEL[chain.kind].slice(1)} іде в рецепт «${LABEL[chain.consumer.product]}». Лійка — розлити на вітрину. Колба — назад на кільце, до машини «${LABEL[chain.consumer.id]}».`,{x:0,y:0,w:ShopScene.width,h:0},1410);
+      return true;
+    }
     function drawHand(){
       if(demoMode||game.phase!=="playing"||!ShopOnboarding.eligible(game.index,game.completed))return;
+      if(drawChainTour())return;
       const h=ShopOnboarding.hint(game.session,game.index);if(!h||!coach.visibleFor(h.type))return;
       if(h.type==="note"){drawCaption(h.text,null);return;}
       const r=rects.get(({launch:"queue",return:"return",pour:"pour"})[h.type]+"-"+h.index);if(!r)return;
@@ -76,7 +123,7 @@
     function setAction(id,text,action,hidden=false){
       const b=$(id);b.textContent=text;b.onclick=action;b.hidden=hidden;
     }
-    // Картка цілей: що зробити (продукти й кількість), за що зірки, а на першому рівні ще й кроки навчання.
+    // Картка цілей: що зробити (продукти й кількість), за що зірки, а на рівні з першим ланцюжком — навчання процесу.
     function renderGoals(s,lv,i){
       const box=$("dialog-goals"),bonus=lv.bonus||[];box.textContent="";
       const add=(tag,cls,text,parent=box)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;parent.append(el);return el;};
@@ -92,9 +139,16 @@
       if(bonus[0]!==undefined)add("li","",`★★ цінність вітрини ${bonus[0]}`,stars);
       if(bonus[1]!==undefined)add("li","",`★★★ цінність вітрини ${bonus[1]}`,stars);
       add("p","goal-values","Цінність: "+ShopScene.levelProducts(s).map(k=>`${LABEL[k]} ${s.values[k]}`).join(" · "));
-      if(i===0){
-        const how=add("ol","goal-how");
-        for(const t of ["Торкніться ресурсу на початку черги — він поїде кільцем до потрібної машини.","Машина збирає рецепт: силует стає кольоровим, коли ресурс прибув. Коли все є — готує.","Готова посудина сама стає на лавку, а каретка розливає її в баночку на вітрину."])add("li","",t,how);
+      const chain=i===CHAIN_LEVEL&&chainOf(s);
+      if(chain){
+        const k=LABEL[chain.kind],c=LABEL[chain.consumer.product];
+        add("p","goals-title",`Новий крок: ${k} у рецепті`);
+        const how=add("ul","goal-how goal-steps");
+        const step=(icon,text)=>{const li=add("li","",undefined,how);if(icon){const img=document.createElement("img");img.src=`assets/${icon}.png`;img.alt="";li.append(img);}else add("span","goal-icon","↺",li);add("span","",text,li);};
+        const file={Infusion:"infusion",Cream:"cream",Powder:"powder",Gel:"gel",Lotion:"lotion",Scrub:"scrub"};
+        step(file[chain.kind],`${k[0].toUpperCase()+k.slice(1)} тепер у рецепті «${c}»: його силует стоїть у машині «${LABEL[chain.consumer.id]}». Крейдяна стрілка біля силуету вказує кут, звідки він береться, — ${CORNER[chain.producer.room]}, машина «${LABEL[chain.producer.id]}».`);
+        step("funnel",`Готовий ${k} стає на лавку. Перший шлях — значок лійки: розлити в баночку на вітрину.`);
+        step(null,`Другий шлях — торкнутися самої колби: вона повернеться на кільце й поїде до машини «${LABEL[chain.consumer.id]}» на ${c}.`);
       }
     }
     function dialog(){
@@ -170,7 +224,7 @@
         $("demo-status").textContent=autoplay?"Автопоказ · чотири цехи працюють разом":"Ви керуєте · чотири цехи";
         $("demo-control").textContent=autoplay?"Грати самостійно":"Увімкнути автопоказ";
       }
-      if(coachSession!==s){coachSession=s;coach.reset();}
+      if(coachSession!==s){coachSession=s;coach.reset();tourDone=false;}
       // Guide: level 1 starts straight into action, no intro screen.
       ShopScene.drawBackground(ctx,sceneryFor(s));active=new Set();ShopScene.render(ctx,s,hit,command);drawHand();
       for(const [id,b]of buttons)if(!active.has(id))b.hidden=true;
